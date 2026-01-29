@@ -5,26 +5,39 @@ from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RBF, ConstantKernel as C
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.gaussian_process.kernels import DotProduct, WhiteKernel, RBF, ConstantKernel as C
+from scipy.optimize import minimize_scalar
+
 exchange = ccxt.binance()
 
-symbol = 'SOL/USDT'
-timeframe = '4h'
-limit = 200 
+symbol = 'BTC/USDT'
+timeframe = '1w'
+limit = 200
 
 ohlcv = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
 data = np.array(ohlcv)
 
 X = np.arange(len(data)).reshape(-1, 1)
-y = data[:, 4]
+y = np.log(data[:, 4])
 
 scaler_X = MinMaxScaler()
 scaler_y = MinMaxScaler()
 
-X_scaled = scaler_X.fit_transform(X)
+X_scaled = scaler_X.fit_transform(X)    
 y_scaled = scaler_y.fit_transform(y.reshape(-1, 1)).ravel()
 
-kernel = C(1.0, (1e-3, 1e3)) * RBF(length_scale=5.0) + DotProduct() + WhiteKernel()
-gpr = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=10, alpha=0.0)
+kernel = (
+    C(1.0, (1e-3, 1e3)) *
+    RBF(length_scale=1.0, length_scale_bounds=(1e-2, 1e2))
+    + DotProduct(sigma_0=1.0, sigma_0_bounds=(1e-3, 1e3))
+    + WhiteKernel(noise_level=1e-3, noise_level_bounds=(1e-6, 1e1))
+)
+
+gpr = GaussianProcessRegressor(
+    kernel=kernel,
+    alpha=1e-7,
+    n_restarts_optimizer=30,
+    normalize_y=True
+)
 
 gpr.fit(X_scaled, y_scaled)
 
@@ -40,7 +53,6 @@ sigma = sigma_scaled * price_range
 
 plt.figure(figsize=(12, 6))
 
-plt.scatter(X, y, color="black", label="Observed Prices", s=20)
 
 plt.plot(X_pred, y_pred, "b", label="GPR Prediction")
 plt.fill_between(
@@ -51,9 +63,10 @@ plt.fill_between(
     color="blue",
     label="95% Confidence Interval"
 )
-
+plt.scatter(X, y, color="black", label="Observed Prices", s=20)
 plt.title(f"Gaussian Process Regression on {symbol} ({timeframe})")
 plt.xlabel("Time (index)")
 plt.ylabel("Price (USDT)")
+plt.grid(True, linestyle='--', linewidth=0.5)
 plt.legend()
 plt.show()
